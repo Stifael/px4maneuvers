@@ -7,20 +7,38 @@
 #include <chrono>
 #include <cstdint>
 #include <system.h>
-#include <plugins/action/action.h>
 #include <dronecode_sdk.h>
-#include <plugins/telemetry/telemetry.h>
 #include <iostream>
 #include <thread>
 #include <math.h>
 
+#include <cmath>
+#include <unistd.h>
+#include <future>
+
+#include "plugins/action/action.h"
+#include "plugins/telemetry/telemetry.h"
+
 using namespace dronecode_sdk;
-using namespace std::this_thread;
-using namespace std::chrono;
+using std::this_thread::sleep_for;
+using std::chrono::milliseconds;
+using std::chrono::seconds;
 
 #define ERROR_CONSOLE_TEXT "\033[31m" // Turn text on console red
 #define TELEMETRY_CONSOLE_TEXT "\033[34m" // Turn text on console blue
 #define NORMAL_CONSOLE_TEXT "\033[0m" // Restore normal console colour
+
+// Handles Action's result
+inline void action_error_exit(ActionResult result, const std::string &message)
+{
+    if (result != ActionResult::SUCCESS) {
+        std::cerr << ERROR_CONSOLE_TEXT << message << action_result_str(result)
+                  << NORMAL_CONSOLE_TEXT << std::endl;
+        exit(EXIT_FAILURE);
+    }
+}
+
+
 
 void usage(std::string bin_name)
 {
@@ -123,13 +141,9 @@ int arm_and_takeoff(Telemetry *telemetry, Action *action)
 
     // Arm vehicle
     std::cout << "Arming..." << std::endl;
-    const ActionResult arm_result = action->arm();
-
-    if (arm_result != ActionResult::SUCCESS) {
-        std::cout << ERROR_CONSOLE_TEXT << "Arming failed:" << action_result_str(arm_result)
-                  << NORMAL_CONSOLE_TEXT << std::endl;
-        return 1;
-    }
+    ActionResult arm_result = action->arm();
+    action_error_exit(arm_result, "Arming failed");
+    std::cout << "Armed..." << std::endl;
 
     // Take off
     auto takeoff_altitude_result = action->get_takeoff_altitude().second;
@@ -226,6 +240,12 @@ int main(int argc, char **argv)
         return return_value;
     } 
 
+    // Wait for the system to connect via heartbeat
+    while (!dc.is_connected()) {
+        std::cout << "Wait for system to connect via heartbeat" << std::endl;
+        sleep_for(seconds(1));
+    }
+
     System &system = dc.system();
 
     return_value = system_setup(dc, system);
@@ -301,19 +321,6 @@ int main(int argc, char **argv)
     yaw = 0;
     std::cout << "Fly away less than RTL_CONE_DIST but above the cone" << std::endl;
     return_value = goto_setpoint_and_RTL(telemetry.get(), action.get(), lat_m, long_m, height_above_home, yaw);
-
-    // TODO: Download logfiles after flight (code below stops downloading at 89%...)
-    // The log files are also stored here(directly from SITL):  Firmware/build/posix_sitl_default/tmp/rootfs/fs/microsd/log
-
-    // auto log_files = std::make_shared<LogFiles>(system);
-    // const std::string file_path = "/home/philipp/.log";
-    // unsigned id = 1;
-    // std::pair<LogFiles::Result, std::vector<LogFiles::Entry> > log_files_entries = log_files->get_entries();
-    // auto nr_of_entries = log_files_entries.second.size();
-    // auto byte_size = log_files_entries.second[1].size_bytes;
-    // std::cout << "Nr of Log files: " << nr_of_entries << std::endl;
-    // std::cout << "byte size of file 1 :" << byte_size << std::endl;
-    // LogFiles::Result Log_result = log_files->download_log_file(id, file_path);
 
     return return_value;
 }
